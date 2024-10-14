@@ -1,6 +1,6 @@
 import random
 from math import sqrt
-from typing import Tuple, List
+from typing import Tuple, List, Any
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -77,7 +77,8 @@ def run_tests(
         ps = [p1, p2]
         tests = {
             "Kolmogorov-Smirnov": stats.kstest,
-            "Cram´er–von Mises": stats.cramervonmises_2samp
+            "Cram´er–von Mises": stats.cramervonmises_2samp,
+            "Anderson-Darling": _anderson_test
         }
 
         for theta, p in zip(thetas, ps):
@@ -91,3 +92,7 @@ def run_tests(
                 print(f"\t\tP-value: {p_value:.4f}")
                 for alpha in alphas:
                     print(f"\t\tWith alpha: {alpha} -> p-value < alpha = Reject null hypothesis: {p_value < alpha}")
+
+
+def _anderson_test(rvs: NDArray, cdf: NDArray) -> Any:
+    return stats.anderson_ksamp(samples=[rvs, cdf], method=stats.PermutationMethod())
