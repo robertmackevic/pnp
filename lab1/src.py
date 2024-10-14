@@ -1,6 +1,6 @@
 import random
 from math import sqrt
-from typing import Tuple
+from typing import Tuple, List
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -59,3 +59,34 @@ def plot_samples_with_pareto_baseline(samples: NDArray, scale: float, shape: flo
 def seed_everything(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
+
+
+def run_tests(
+        theta_0: Tuple[float, float],
+        theta_1: Tuple[float, float],
+        theta_2: Tuple[float, float],
+        p1: float,
+        p2: float,
+        alphas: List[float],
+        num_samples: List[int],
+) -> None:
+    for n in num_samples:
+        print(f"\n=======Testing with N={n} samples=======")
+        G0 = compute_g(*theta_0, num_samples=n)
+        thetas = [theta_1, theta_2]
+        ps = [p1, p2]
+        tests = {
+            "Kolmogorov-Smirnov": stats.kstest,
+        }
+
+        for theta, p in zip(thetas, ps):
+            print(f"Testing with p={p} and theta={theta}")
+            G = compute_g(*theta, num_samples=n)
+            FY = (1 - p) * G0 + p * G
+
+            for title, test in tests.items():
+                print(f"\t{title}")
+                p_value = test(FY, G0).pvalue
+                print(f"\t\tP-value: {p_value:.4f}")
+                for alpha in alphas:
+                    print(f"\t\tWith alpha: {alpha} -> p-value < alpha = Reject null hypothesis: {p_value < alpha}")
