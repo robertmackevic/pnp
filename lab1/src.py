@@ -1,6 +1,6 @@
 import random
 from math import sqrt
-from typing import Tuple, List, Any
+from typing import Tuple, List
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -76,9 +76,10 @@ def run_tests(
         thetas = [theta_1, theta_2]
         ps = [p1, p2]
         tests = {
-            "Kolmogorov-Smirnov": stats.kstest,
-            "Cram´er–von Mises": stats.cramervonmises_2samp,
-            "Anderson-Darling": _anderson_test
+            "Kolmogorov-Smirnov": _ks_test,
+            "Cram´er–von Mises": _cm_test,
+            "Anderson-Darling": _ad_test,
+            "Dvoretzky–Kiefer–Wolfowitz Inequality": _dkw_test,
         }
 
         for theta, p in zip(thetas, ps):
@@ -88,11 +89,34 @@ def run_tests(
 
             for title, test in tests.items():
                 print(f"\t{title}")
-                p_value = test(FY, G0).pvalue
-                print(f"\t\tP-value: {p_value:.4f}")
-                for alpha in alphas:
-                    print(f"\t\tWith alpha: {alpha} -> p-value < alpha = Reject null hypothesis: {p_value < alpha}")
+                test(FY, G0, alphas)
 
 
-def _anderson_test(rvs: NDArray, cdf: NDArray) -> Any:
-    return stats.anderson_ksamp(samples=[rvs, cdf], method=stats.PermutationMethod())
+def _ks_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
+    p_value = stats.kstest(ecdf, cdf).pvalue
+    print(f"\t\tP-value: {p_value:.5f}")
+    for alpha in alphas:
+        print(f"\t\tReject the null hypothesis: p-value < {alpha}(alpha) = {p_value < alpha}")
+
+
+def _cm_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
+    p_value = stats.cramervonmises_2samp(ecdf, cdf).pvalue
+    print(f"\t\tP-value: {p_value:.5f}")
+    for alpha in alphas:
+        print(f"\t\tReject the null hypothesis: p-value < {alpha}(alpha) = {p_value < alpha}")
+
+
+def _ad_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
+    p_value = stats.anderson_ksamp(samples=[ecdf, cdf], method=stats.PermutationMethod()).pvalue
+    print(f"\t\tP-value: {p_value:.5f}")
+    for alpha in alphas:
+        print(f"\t\tReject the null hypothesis: p-value < {alpha}(alpha) = {p_value < alpha}")
+
+
+def _dkw_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
+    max_deviation = np.max(np.abs(ecdf - cdf))
+    num_samples = len(ecdf)
+    print(f"\t\tMax deviation: {max_deviation:.5f}")
+    for alpha in alphas:
+        epsilon = np.sqrt(np.log(2 / alpha) / (2 * num_samples))
+        print(f"\t\tReject the null hypothesis: max-deviation > {epsilon:.5f}(epsilon) = {max_deviation > epsilon}")
