@@ -77,6 +77,7 @@ def run_tests(
         ps = [p1, p2]
         tests = {
             "Kolmogorov-Smirnov": stats.kstest,
+            "Cram´er–von Mises": stats.cramervonmises_2samp
         }
 
         for theta, p in zip(thetas, ps):
