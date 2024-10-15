@@ -93,30 +93,30 @@ def run_tests(
 
 
 def _ks_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
-    p_value = stats.kstest(ecdf, cdf).pvalue
+    p_value = stats.ks_2samp(ecdf, cdf).pvalue
     print(f"\t\tP-value: {p_value:.5f}")
     for alpha in alphas:
-        print(f"\t\tReject the null hypothesis: p-value < {alpha}(alpha) = {p_value < alpha}")
+        print(f"\t\tReject the null hypothesis: p-value < α({alpha}) = {p_value < alpha}")
 
 
 def _cm_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
     p_value = stats.cramervonmises_2samp(ecdf, cdf).pvalue
     print(f"\t\tP-value: {p_value:.5f}")
     for alpha in alphas:
-        print(f"\t\tReject the null hypothesis: p-value < {alpha}(alpha) = {p_value < alpha}")
+        print(f"\t\tReject the null hypothesis: p-value < α({alpha}) = {p_value < alpha}")
 
 
 def _ad_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
     p_value = stats.anderson_ksamp(samples=[ecdf, cdf], method=stats.PermutationMethod()).pvalue
     print(f"\t\tP-value: {p_value:.5f}")
     for alpha in alphas:
-        print(f"\t\tReject the null hypothesis: p-value < {alpha}(alpha) = {p_value < alpha}")
+        print(f"\t\tReject the null hypothesis: p-value < α({alpha}) = {p_value < alpha}")
 
 
 def _dkw_test(ecdf: NDArray, cdf: NDArray, alphas: List[float]) -> None:
-    max_deviation = np.max(np.abs(ecdf - cdf))
+    ks_statistic = stats.ks_2samp(ecdf, cdf).statistic
     num_samples = len(ecdf)
-    print(f"\t\tMax deviation: {max_deviation:.5f}")
+    print(f"\t\tKS Statistic: {ks_statistic:.5f}")
     for alpha in alphas:
         epsilon = np.sqrt(np.log(2 / alpha) / (2 * num_samples))
-        print(f"\t\tReject the null hypothesis: max-deviation > {epsilon:.5f}(epsilon) = {max_deviation > epsilon}")
+        print(f"\t\tReject the null hypothesis: KS Statistic > {epsilon:.5f}(α = {alpha}) = {ks_statistic > epsilon}")
