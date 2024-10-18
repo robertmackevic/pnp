@@ -18,16 +18,14 @@ def compute_pareto_variance(scale: float, shape: float) -> float:
 
 def compute_theta(mean: float, var: float) -> Tuple[float, float]:
     _sqrt = sqrt(var ** 2 + var * mean ** 2)
-    a1 = (var + _sqrt) / var
-    a2 = (var - _sqrt) / var
-    a = max(a1, a2)
-    assert a > 2
-    xm = mean * (a - 1) / a
+    alpha = max((var + _sqrt) / var, (var - _sqrt) / var)
+    assert alpha > 2
+    xm = mean - mean / alpha
     assert xm > 0
-    return xm, a
+    return xm, alpha
 
 
-def compute_g(scale: float, shape: float, num_samples: int) -> NDArray:
+def generate_g(scale: float, shape: float, num_samples: int) -> NDArray:
     return stats.pareto.rvs(b=shape, scale=scale, size=num_samples)
 
 
@@ -70,21 +68,22 @@ def run_tests(
         alphas: List[float],
         num_samples: List[int],
 ) -> None:
+    tests = {
+        "Kolmogorov-Smirnov": _ks_test,
+        "Cram´er–von Mises": _cm_test,
+        "Anderson-Darling": _ad_test,
+        "Dvoretzky–Kiefer–Wolfowitz Inequality": _dkw_test,
+    }
+
     for n in num_samples:
         print(f"\n=======Testing with N={n} samples=======")
-        G0 = compute_g(*theta_0, num_samples=n)
+        G0 = generate_g(*theta_0, num_samples=n)
         thetas = [theta_1, theta_2]
         ps = [p1, p2]
-        tests = {
-            "Kolmogorov-Smirnov": _ks_test,
-            "Cram´er–von Mises": _cm_test,
-            "Anderson-Darling": _ad_test,
-            "Dvoretzky–Kiefer–Wolfowitz Inequality": _dkw_test,
-        }
 
         for theta, p in zip(thetas, ps):
             print(f"Testing with p={p} and theta={theta}")
-            G = compute_g(*theta, num_samples=n)
+            G = generate_g(*theta, num_samples=n)
             FY = (1 - p) * G0 + p * G
 
             for title, test in tests.items():
