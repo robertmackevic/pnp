@@ -81,20 +81,21 @@ def compare_densities(
         true_density: NDArray,
         estimated_densities: List[NDArray],
         x_grid: NDArray,
-        names: List[str]
+        names: List[str],
+        n_samples: int
 ) -> None:
-    results = []
-    true_cdf = np.cumsum(true_density) / np.sum(true_density)
     dx = x_grid[1] - x_grid[0]
+    true_density /= np.sum(true_density) * dx
+    true_samples = np.random.choice(x_grid, size=n_samples, p=true_density * dx)
 
     print(f"{'Estimator':<20}{'KS Statistic':<15}{'KS p-value':<15}{'ISE':<15}{'Hellinger Distance':<20}")
     print("-" * 80)
 
     for name, est_density in zip(names, estimated_densities):
-        est_cdf = np.cumsum(est_density) * dx
-        ks_stat, ks_pvalue = stats.ks_2samp(true_cdf, est_cdf)
+        est_density /= np.sum(est_density) * dx
+        est_samples = np.random.choice(x_grid, size=n_samples, p=est_density * dx)
+        ks_stat, ks_pvalue = stats.ks_2samp(true_samples, est_samples)
         ise = np.sum((true_density - est_density) ** 2) * dx
         hd = hellinger_distance(true_density, est_density, dx)
-        results.append([name, ks_stat, ks_pvalue, ise, hd])
 
         print(f"{name:<20}{ks_stat:<15.6f}{ks_pvalue:<15.6f}{ise:<15.6f}{hd:<20.6f}")
