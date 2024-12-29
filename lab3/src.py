@@ -4,7 +4,60 @@ import numpy as np
 from numpy.typing import NDArray, ArrayLike
 from scipy import stats
 from scipy.spatial import KDTree
+import numpy as np
+from scipy.stats import gaussian_kde
+from scipy.integrate import quad
 
+def gaussian_kernel(x: float)->float:
+    """
+    Standard Gaussian kernel function
+    """
+    return (1/np.sqrt(2*np.pi)) * np.exp(-0.5 * x**2)
+
+def kde_leave_one_out(x: NDArray, h: float, eval_points: NDArray)->NDArray:
+    """
+    Compute leave-one-out kernel density estimate
+    
+    Parameters:
+    x: array of observations
+    h: bandwidth
+    eval_points: points at which to evaluate the density
+    """
+    n = len(x)
+    estimates = np.zeros_like(eval_points)
+    
+    for i in range(len(eval_points)):
+        kernel_sum = 0
+        for j in range(n):
+            kernel_sum += gaussian_kernel((eval_points[i] - x[j])/h)
+        estimates[i] = kernel_sum/(n*h)
+    
+    return estimates
+
+def lscv_loss_with_integral(x: NDArray, h: float)-> float:
+    """
+    Compute LSCV loss for a given bandwidth h
+    Returns:
+    LSCV loss value
+    """
+    n = len(x)
+    
+    # First term: integral of squared density estimate
+    def squared_kde(t):
+        kde = kde_leave_one_out(x, h, np.array([t]))
+        return kde[0]**2
+    
+    integral, _ = quad(squared_kde, min(x)-3*h, max(x)+3*h)
+    
+    # Second term: leave-one-out estimates
+    loo_sum = 0
+    for i in range(n):
+        x_without_i = np.delete(x, i)
+        xi = x[i]
+        loo_estimate = kde_leave_one_out(x_without_i, h, np.array([xi]))
+        loo_sum += loo_estimate[0]
+    
+    return integral - (2/n) * loo_sum
 
 def lscv_loss(data: NDArray, bandwidth: float) -> float:
     n = len(data)
@@ -18,31 +71,47 @@ def lscv_loss(data: NDArray, bandwidth: float) -> float:
     return first_term - second_term
 
 
+
+import numpy as np
+from scipy.stats import gaussian_kde
+from scipy.integrate import quad
+
+# Kernel and its second derivative
+def kernel_function(x):
+    return np.exp(-0.5 * x**2) / np.sqrt(2 * np.pi)
+
+def kernel_second_derivative(x):
+    return (x**2 - 1) * kernel_function(x)
+
+# Roughness functional R(K)
+def roughness_functional(kernel_sec_deriv):
+    return quad(lambda u: kernel_sec_deriv(u)**2, -np.inf, np.inf)[0]
+
+# Estimate density derivatives
+def estimate_density_second_derivative(data, h):
+    kde = gaussian_kde(data, bw_method=h)
+    second_derivative = lambda x: kde.evaluate(x)  # Approximate for second derivative
+    return second_derivative
+
 def refined_plugin_bandwidth_selection(data: NDArray, max_iter: int = 100, tol: float = 1e-5) -> float:
     n = len(data)
     std_dev = np.std(data)
     initial_bw = (4 * std_dev ** 5 / (3 * n)) ** (1 / 5)
 
-    current_bw = initial_bw
-    for _ in range(max_iter):
-        current_loss = lscv_loss(data, current_bw)
-
-        bw_left = current_bw - 0.01
-        bw_right = current_bw + 0.01
-        left_loss = lscv_loss(data, bw_left)
-        right_loss = lscv_loss(data, bw_right)
-
-        if left_loss < current_loss:
-            current_bw = bw_left
-        elif right_loss < current_loss:
-            current_bw = bw_right
-        else:
-            break
-
-        if abs(current_loss - min(left_loss, right_loss)) < tol:
-            break
-
-    return current_bw
+    n = len(data)
+    h_pilot = np.std(data) * n**(-1/5)  # Initial pilot bandwidth
+    kde_pilot = gaussian_kde(data, bw_method=h_pilot)
+    
+    # Estimate g''(u)
+    g_second_derivative = estimate_density_second_derivative(data, h_pilot)
+    
+    # Compute roughness term R(K)
+    R_K = roughness_functional(kernel_second_derivative)
+    
+    # Plug-in bandwidth formula
+    integrated_second_derivative = quad(lambda x: g_second_derivative(x)**2, -np.inf, np.inf)[0]
+    h = (R_K / (n * integrated_second_derivative))**(1/5)
+    return h
 
 
 def smoothed_bootstrap_bandwidth(
