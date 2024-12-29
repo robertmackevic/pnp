@@ -1,46 +1,48 @@
 from typing import Optional, List
 
 import numpy as np
-from joblib import Parallel, delayed
 from numpy.typing import NDArray, ArrayLike
 from scipy import stats
 from scipy.spatial import KDTree
 
 
-def compute_kernel_density(x: NDArray, data: NDArray, bandwidth: NDArray) -> NDArray:
-    return np.sum(stats.norm.pdf((x - data[:, None]) / bandwidth), axis=0) / (len(data) * bandwidth)
-
-
-def lscv_loss(data: NDArray, bandwidth: NDArray, n_jobs: int = -1) -> NDArray:
+def lscv_loss(data: NDArray, bandwidth: float) -> float:
     n = len(data)
-    kde_estimate = compute_kernel_density(data, data, bandwidth)
-    first_term = np.mean(kde_estimate)
-
-    def loo_density(i):
-        return np.sum(stats.norm.pdf((data[i] - np.delete(data, i)) / bandwidth)) / ((n - 1) * bandwidth)
-
-    loo_density_values = Parallel(n_jobs=n_jobs)(delayed(loo_density)(i) for i in range(n))
+    density = stats.gaussian_kde(data, bw_method=bandwidth)(data)
+    first_term = np.mean(density)
+    loo_density_values = [
+        stats.gaussian_kde(np.delete(data, i), bw_method=bandwidth)(data[i])
+        for i in range(n)
+    ]
     second_term = (2 / n) * np.sum(loo_density_values)
-
     return first_term - second_term
 
 
-def plugin_bandwidth(data: NDArray) -> NDArray:
-    # Step 1: Pre-smoothing (initial kernel density estimate with rule-of-thumb bandwidth)
-    initial_bandwidth = 1.06 * np.std(data) * len(data) ** (-1 / 5)
-    kde = stats.gaussian_kde(data, bw_method=initial_bandwidth / np.std(data))
+def refined_plugin_bandwidth_selection(data: NDArray, max_iter: int = 100, tol: float = 1e-5) -> float:
+    n = len(data)
+    std_dev = np.std(data)
+    initial_bw = (4 * std_dev ** 5 / (3 * n)) ** (1 / 5)
 
-    # Step 2: Estimate f''(x) by applying a second-order kernel
-    # Generate a grid for density estimation
-    x_grid = np.linspace(np.min(data), np.max(data), 1000)
-    kde_values = kde(x_grid)
+    current_bw = initial_bw
+    for _ in range(max_iter):
+        current_loss = lscv_loss(data, current_bw)
 
-    # Numerical second derivative estimation
-    second_derivative = np.gradient(np.gradient(kde_values, x_grid), x_grid)
-    squared_integral = np.sum(second_derivative ** 2) * (x_grid[1] - x_grid[0])
+        bw_left = current_bw - 0.01
+        bw_right = current_bw + 0.01
+        left_loss = lscv_loss(data, bw_left)
+        right_loss = lscv_loss(data, bw_right)
 
-    refined_bandwidth = (squared_integral * len(data) ** (-1)) ** (1 / 5)
-    return refined_bandwidth
+        if left_loss < current_loss:
+            current_bw = bw_left
+        elif right_loss < current_loss:
+            current_bw = bw_right
+        else:
+            break
+
+        if abs(current_loss - min(left_loss, right_loss)) < tol:
+            break
+
+    return current_bw
 
 
 def smoothed_bootstrap_bandwidth(
