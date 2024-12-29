@@ -3,6 +3,7 @@ from typing import List
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
 from scipy import stats
+from scipy.integrate import quad
 from scipy.spatial import KDTree
 
 
@@ -16,6 +17,34 @@ def lscv_loss(data: NDArray, bandwidth: float) -> float:
     ]
     second_term = (2 / n) * np.sum(loo_density_values)
     return first_term - second_term
+
+
+def kernel_function(x):
+    return np.exp(-0.5 * x ** 2) / np.sqrt(2 * np.pi)
+
+
+def kernel_second_derivative(x):
+    return (x ** 2 - 1) * kernel_function(x)
+
+
+def roughness_functional(kernel_sec_deriv):
+    return quad(lambda u: kernel_sec_deriv(u) ** 2, -np.inf, np.inf)[0]
+
+
+def estimate_density_second_derivative(data, h):
+    kde = stats.gaussian_kde(data, bw_method=h)
+    second_derivative = lambda x: kde.evaluate(x)  # Approximate for second derivative
+    return second_derivative
+
+
+def refined_plugin_bandwidth_selection(data: NDArray) -> float:
+    n = len(data)
+    h_pilot = np.std(data) * n ** (-1 / 5)
+    g_second_derivative = estimate_density_second_derivative(data, h_pilot)
+    R_K = roughness_functional(kernel_second_derivative)
+    integrated_second_derivative = quad(lambda x: g_second_derivative(x) ** 2, -np.inf, np.inf)[0]
+    h = (R_K / (n * integrated_second_derivative)) ** (1 / 5)
+    return h
 
 
 def smoothed_bootstrap_bandwidth(data: NDArray, n_bootstrap: int, bandwidths: NDArray) -> float:
