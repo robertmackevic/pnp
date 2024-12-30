@@ -1,58 +1,69 @@
-from typing import List
+from typing import List, Callable
 
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
 from scipy import stats
-from scipy.integrate import quad
 from scipy.spatial import KDTree
+from sklearn.neighbors import KernelDensity
 
 
-def lscv_loss(data: NDArray, bandwidth: float) -> float:
+def lscv_loss(data: NDArray, bandwidth: float, true_density_func: Callable) -> float:
     n = len(data)
-    density = stats.gaussian_kde(data, bw_method=bandwidth)(data)
-    first_term = np.mean(density)
-    loo_density_values = [
-        stats.gaussian_kde(np.delete(data, i), bw_method=bandwidth)(data[i])
-        for i in range(n)
-    ]
-    second_term = (2 / n) * np.sum(loo_density_values)
-    return first_term - second_term
+    lscv_error = 0
+
+    for i in range(n):
+        remaining_samples = np.delete(data, i)
+        kde = stats.gaussian_kde(remaining_samples, bw_method=bandwidth)
+        estimated_density = kde.evaluate([data[i]])
+
+        true_density = true_density_func(data[i])
+        error = (estimated_density - true_density) ** 2
+        lscv_error += error
+
+    return lscv_error / n
 
 
-def kernel_function(x):
-    return np.exp(-0.5 * x ** 2) / np.sqrt(2 * np.pi)
-
-
-def kernel_second_derivative(x):
-    return (x ** 2 - 1) * kernel_function(x)
-
-
-def roughness_functional(kernel_sec_deriv):
-    return quad(lambda u: kernel_sec_deriv(u) ** 2, -np.inf, np.inf)[0]
-
-
-def estimate_density_second_derivative(data, h):
-    kde = stats.gaussian_kde(data, bw_method=h)
-    second_derivative = lambda x: kde.evaluate(x)  # Approximate for second derivative
-    return second_derivative
-
-
-def refined_plugin_bandwidth_selection(data: NDArray) -> float:
+def refined_plugin_bandwidth(data):
     n = len(data)
-    h_pilot = np.std(data) * n ** (-1 / 5)
-    g_second_derivative = estimate_density_second_derivative(data, h_pilot)
-    R_K = roughness_functional(kernel_second_derivative)
-    integrated_second_derivative = quad(lambda x: g_second_derivative(x) ** 2, -np.inf, np.inf)[0]
-    h = (R_K / (n * integrated_second_derivative)) ** (1 / 5)
-    return h
+
+    h0 = stats.gaussian_kde(data).factor * np.std(data)
+
+    kde = KernelDensity(bandwidth=h0, kernel='gaussian')
+    kde.fit(data[:, np.newaxis])
+
+    x_grid = np.linspace(min(data), max(data), 1000)[:, np.newaxis]
+    log_dens = kde.score_samples(x_grid)
+    density = np.exp(log_dens)
+
+    dx = x_grid[1, 0] - x_grid[0, 0]
+    d4 = np.gradient(np.gradient(np.gradient(np.gradient(density)))) / dx ** 4
+    d6 = np.gradient(np.gradient(d4)) / dx ** 2
+
+    psi4_hat = np.mean(np.abs(d4))
+    psi6_hat = np.mean(np.abs(d6))
+
+    h_opt = ((8 * np.sqrt(np.pi) * stats.norm.pdf(0)) /
+             (3 * n * psi4_hat ** 2)) ** (1 / 5)
+
+    return h_opt
 
 
-def smoothed_bootstrap_bandwidth(data: NDArray, n_bootstrap: int, bandwidths: NDArray) -> float:
-    return np.mean([
-        bandwidths[np.argmin([
-            lscv_loss(np.random.choice(data, size=len(data), replace=True), bw)
-            for bw in bandwidths])] for _ in range(n_bootstrap)
-    ]).item()
+def silverman_bandwidth(data: NDArray) -> float:
+    return (4 * np.std(data) ** 5 / (3 * len(data))) ** (1 / 5)
+
+
+def smoothed_bootstrap_bandwidth(
+        data: NDArray, n_bootstrap: int, bandwidths: NDArray, true_density_func: Callable
+) -> float:
+    bootstrap_bandwidths = []
+    kde = stats.gaussian_kde(data, bw_method=silverman_bandwidth(data))
+
+    for _ in range(n_bootstrap):
+        bootstrap_samples = kde.resample(size=len(data)).squeeze(0)
+        lscv_losses = [lscv_loss(bootstrap_samples, bw.item(), true_density_func) for bw in bandwidths]
+        bootstrap_bandwidths.append(bandwidths[np.argmin(lscv_losses)])
+
+    return sum(bootstrap_bandwidths) / n_bootstrap
 
 
 def compute_knn_density(data: NDArray, x_grid: NDArray, k: int) -> NDArray:
