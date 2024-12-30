@@ -4,7 +4,6 @@ import numpy as np
 from numpy.typing import NDArray, ArrayLike
 from scipy import stats
 from scipy.spatial import KDTree
-from sklearn.neighbors import KernelDensity
 
 
 def lscv_loss(data: NDArray, bandwidth: float, true_density_func: Callable) -> float:
@@ -23,33 +22,34 @@ def lscv_loss(data: NDArray, bandwidth: float, true_density_func: Callable) -> f
     return lscv_error / n
 
 
-def refined_plugin_bandwidth(data):
-    n = len(data)
-
-    h0 = stats.gaussian_kde(data).factor * np.std(data)
-
-    kde = KernelDensity(bandwidth=h0, kernel='gaussian')
-    kde.fit(data[:, np.newaxis])
-
-    x_grid = np.linspace(min(data), max(data), 1000)[:, np.newaxis]
-    log_dens = kde.score_samples(x_grid)
-    density = np.exp(log_dens)
-
-    dx = x_grid[1, 0] - x_grid[0, 0]
-    d4 = np.gradient(np.gradient(np.gradient(np.gradient(density)))) / dx ** 4
-    d6 = np.gradient(np.gradient(d4)) / dx ** 2
-
-    psi4_hat = np.mean(np.abs(d4))
-    psi6_hat = np.mean(np.abs(d6))
-
-    h_opt = ((8 * np.sqrt(np.pi) * stats.norm.pdf(0)) /
-             (3 * n * psi4_hat ** 2)) ** (1 / 5)
-
-    return h_opt
-
-
 def silverman_bandwidth(data: NDArray) -> float:
     return (4 * np.std(data) ** 5 / (3 * len(data))) ** (1 / 5)
+
+
+def _gaussian_kernel(x: NDArray) -> NDArray:
+    return np.exp(-0.5 * x ** 2) / np.sqrt(2 * np.pi)
+
+
+def _gaussian_kernel_second_derivative(x: NDArray) -> NDArray:
+    return (x ** 2 - 1) * np.exp(-0.5 * x ** 2) / np.sqrt(2 * np.pi)
+
+
+def _kde(data: NDArray, bw: float, kernel: Callable) -> NDArray:
+    n = len(data)
+    y = np.zeros_like(data)
+
+    for i in range(n):
+        y += kernel((data - data[i]) / bw)
+
+    return y / (n * bw)
+
+
+def refined_plugin_bandwidth(data: NDArray) -> float:
+    initial_bw = silverman_bandwidth(data)
+    kde_values = _kde(data, initial_bw, _gaussian_kernel)
+    estimate = np.mean(_gaussian_kernel_second_derivative((data - data[:, None]) / initial_bw), axis=0)
+    optimal_bw = np.sqrt(np.sum(estimate ** 2) / np.sum(kde_values))
+    return optimal_bw
 
 
 def smoothed_bootstrap_bandwidth(
@@ -84,29 +84,17 @@ def compute_knn_density(data: NDArray, x_grid: NDArray, k: int) -> NDArray:
     return np.array(densities)
 
 
-def hellinger_distance(p: NDArray, q: NDArray, dx: NDArray) -> float:
-    return np.sqrt(np.sum((np.sqrt(p) - np.sqrt(q)) ** 2) * dx / 2).item()
-
-
 def compare_densities(
         true_density: NDArray,
         estimated_densities: List[NDArray],
-        x_grid: NDArray,
         names: List[str],
-        n_samples: int
 ) -> None:
-    dx = x_grid[1] - x_grid[0]
-    true_density /= np.sum(true_density) * dx
-    true_samples = np.random.choice(x_grid, size=n_samples, p=true_density * dx)
+    print(f"{'Density':<15}{'MSE':<15}{'TVD':<15}{'KL Divergence':<20}{'Hellinger':<15}")
+    print("-" * 75)
 
-    print(f"{'Estimator':<20}{'KS Statistic':<15}{'KS p-value':<15}{'ISE':<15}{'Hellinger Distance':<20}")
-    print("-" * 80)
-
-    for name, est_density in zip(names, estimated_densities):
-        est_density /= np.sum(est_density) * dx
-        est_samples = np.random.choice(x_grid, size=n_samples, p=est_density * dx)
-        ks_stat, ks_pvalue = stats.ks_2samp(true_samples, est_samples)
-        ise = np.sum((true_density - est_density) ** 2) * dx
-        hd = hellinger_distance(true_density, est_density, dx)
-
-        print(f"{name:<20}{ks_stat:<15.6f}{ks_pvalue:<15.6f}{ise:<15.6f}{hd:<20.6f}")
+    for name, estimated_density in zip(names, estimated_densities):
+        mse = np.mean((true_density - estimated_density) ** 2)
+        tvd = 0.5 * np.sum(np.abs(true_density - estimated_density))
+        kl_div = stats.entropy(true_density, estimated_density)
+        hd = np.sqrt(0.5 * np.sum((np.sqrt(true_density) - np.sqrt(estimated_density)) ** 2))
+        print(f"{name:<15}{mse:<15.6f}{tvd:<15.6f}{kl_div:<20.6f}{hd:<15.6f}")
