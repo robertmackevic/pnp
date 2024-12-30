@@ -69,7 +69,7 @@ def smoothed_bootstrap_bandwidth(
     return sum(bootstrap_bandwidths) / n_bootstrap
 
 
-def compute_knn_density(data: NDArray, x_grid: NDArray, k: int) -> NDArray:
+def estimate_knn_density(data: NDArray, x_grid: NDArray, k: int) -> NDArray:
     n = len(data)
     tree = KDTree(data.reshape(-1, 1))
     densities = []
