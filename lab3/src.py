@@ -60,7 +60,10 @@ def smoothed_bootstrap_bandwidth(
 
     for _ in range(n_bootstrap):
         bootstrap_samples = kde.resample(size=len(data)).squeeze(0)
-        lscv_losses = [lscv_loss(bootstrap_samples, bw.item(), true_density_func) for bw in bandwidths]
+        lscv_losses = [
+            lscv_loss(bootstrap_samples, bw.item(), true_density_func)
+            for bw in bandwidths
+        ]
         bootstrap_bandwidths.append(bandwidths[np.argmin(lscv_losses)])
 
     return sum(bootstrap_bandwidths) / n_bootstrap
